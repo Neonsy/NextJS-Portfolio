@@ -220,39 +220,22 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
 
-            - name: Setup PNPM
-              uses: pnpm/action-setup@v4
+            - name: Deploy to Production
+              id: vercel-production
+              uses: amondnet/vercel-action@v25
               with:
-                  version: latest
-
-            - name: Setup NodeJS
-              uses: actions/setup-node@v4
-              with:
-                  node-version-file: '.node-version'
-                  cache: 'pnpm'
-                  cache-dependency-path: 'pnpm-lock.yaml'
-
-            - name: Install Dependencies
-              run: pnpm install
-
-            - name: Install Vercel CLI
-              run: pnpm i vercel@latest -g
-
-            - name: Pull Vercel ENV Information
-              run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-
-            - name: Build Project Artifacts
-              run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
-
-            - name: Deploy Project Artifacts to Vercel
-              run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
-
+                vercel-args: '--prod'
+                vercel-token: ${{ secrets.VERCEL_TOKEN }}
+                vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+                vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+              
             - name: Comment Deployment URL on PR
-              if: github.event_name == 'pull_request'
               env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                DEPLOYMENT_URL: ${{ steps.vercel-production.outputs.preview-url }}
               run: |
-                  gh pr comment ${{ github.event.pull_request.number }} --body "Deployment URL: ${{ env.DEPLOYMENT_URL }}"
+                echo "Commenting on PR with Deployment URL: $DEPLOYMENT_URL"
+                gh pr comment ${{ github.event.pull_request.number }} --body "Deployment URL: $DEPLOYMENT_URL"
 
     vercel-deploy-preview:
         runs-on: ubuntu-latest
