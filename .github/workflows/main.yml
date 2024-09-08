@@ -1,0 +1,297 @@
+name: Main CI/CD
+
+on:
+    pull_request:
+        branches: [main, Preview]
+        types: [opened, reopened, synchronize]
+
+jobs:
+    restrict-pr:
+        if: github.event.action == 'opened' || github.event.action == 'reopened'
+        runs-on: ubuntu-latest
+
+        permissions:
+            contents: write
+            pull-requests: write
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - id: check-preview-branch
+              name: Check PR for Preview branch
+              if: github.event.pull_request.base.ref == 'Preview'
+              run: |
+                  if [ "${{ github.event.pull_request.head.ref }}" != "Dev" ]; then
+                    echo "Pull requests to 'Preview' must come from 'Dev' branch." > failure_message.txt
+                    echo "failure=true" >> $GITHUB_ENV
+                  fi
+
+            - id: check-main-branch
+              name: Check PR for main branch
+              if: github.event.pull_request.base.ref == 'main'
+              run: |
+                  if [ "${{ github.event.pull_request.head.ref }}" != "Preview" ]; then
+                    echo "Pull requests to 'main' must come from 'Preview' branch." > failure_message.txt
+                    echo "failure=true" >> $GITHUB_ENV
+                  fi
+
+            - id: add-label
+              name: Add label on failure
+              if: env.failure == 'true'
+              uses: buildsville/add-remove-label@v2.0.1
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  labels: pr error
+                  type: add
+
+            - id: comment-and-close-pr
+              name: Comment and Close PR
+              if: env.failure == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  message=$(cat failure_message.txt)
+                  gh pr comment ${{ github.event.pull_request.number }} --body "$message"
+                  gh pr close ${{ github.event.pull_request.number }}
+
+    label-pr:
+        if: github.event.action == 'opened' || github.event.action == 'reopened'
+        runs-on: ubuntu-latest
+        needs: restrict-pr
+
+        permissions:
+            contents: write
+            issues: write
+            pull-requests: write
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - id: label-preview
+              name: Label PR for Preview
+              if: github.event.pull_request.base.ref == 'Preview' && github.event.pull_request.head.ref == 'Dev'
+              uses: buildsville/add-remove-label@v2.0.1
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  labels: preview
+                  type: add
+
+            - id: label-production-ready
+              name: Label PR for Main
+              if: github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'Preview'
+              uses: buildsville/add-remove-label@v2.0.1
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  labels: production ready
+                  type: add
+
+    format-and-lint:
+        runs-on: ubuntu-latest
+        needs: [restrict-pr, label-pr]
+        if: ${{ always() && (needs.restrict-pr.result == 'success' || needs.restrict-pr.result == 'skipped') && (needs.label-pr.result == 'success' || needs.label-pr.result == 'skipped') }}
+
+        permissions:
+            contents: write
+            issues: write
+            pull-requests: write
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  token: ${{ secrets.PAT }}
+
+            - name: Setup PNPM
+              uses: pnpm/action-setup@v4
+              with:
+                  version: latest
+
+            - name: Setup NodeJS
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.node-version'
+                  cache: 'pnpm'
+                  cache-dependency-path: 'pnpm-lock.yaml'
+
+            - name: Install Dependencies
+              run: pnpm install
+
+            - name: Run ESLint
+              id: eslint
+              run: pnpm run lint
+              continue-on-error: true
+
+            - name: Add label when ESLint check fails
+              if: steps.eslint.outcome == 'failure'
+              uses: buildsville/add-remove-label@v2.0.1
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  labels: eslint error
+                  type: add
+
+            - name: Remove label when ESLint check succeeds
+              if: steps.eslint.outcome == 'success'
+              uses: buildsville/add-remove-label@v2.0.1
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  labels: eslint error
+                  type: remove
+
+            - name: Fail if ESLint check failed
+              if: steps.eslint.outcome == 'failure'
+              run: exit 1
+
+            - name: Run format:check
+              id: format_check
+              run: pnpm run format:check
+              continue-on-error: true
+
+            - name: Add label when prettier check fails
+              if: steps.format_check.outcome == 'failure'
+              uses: buildsville/add-remove-label@v2.0.1
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  labels: prettier error
+                  type: add
+
+            - name: Remove label when prettier check succeeds
+              if: steps.format_check.outcome == 'success'
+              uses: buildsville/add-remove-label@v2.0.1
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  labels: prettier error
+                  type: remove
+
+            - name: Run format:fix if needed
+              id: format_fix
+              if: steps.format_check.outcome == 'failure'
+              run: |
+                  pnpm run format:fix
+                  echo "::notice ::Prettier check failed. The PR has been formatted"
+
+            - name: Add label when auto fix was successful
+              if: steps.format_fix.outcome == 'success'
+              uses: buildsville/add-remove-label@v2.0.1
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+                  labels: prettier write
+                  type: add
+
+            - name: Check for changes
+              id: check_changes
+              run: |
+                  if [[ -n $(git status --porcelain) ]]; then
+                    echo "has_changes=true" >> $GITHUB_ENV
+                  else
+                    echo "has_changes=false" >> $GITHUB_ENV
+                  fi
+
+            - name: Commit and push changes
+              if: env.has_changes == 'true'
+              run: |
+                  git config --global user.name 'github-actions[bot]'
+                  git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+
+                  git fetch origin
+
+                  # Ensure you are on the correct branch
+                  git checkout ${{ github.head_ref }}
+
+                  # Add and commit changes before rebasing to avoid conflicts
+                  git add .
+                  git commit -m "Apply formatting changes via Action" || echo "No changes to commit"
+
+                  # Rebase the local changes on top of the latest remote changes
+                  git rebase origin/${{ github.head_ref }}
+
+                  # Push changes back to the branch of the PR
+                  git push origin "HEAD:${{ github.head_ref }}"
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    vercel-deploy:
+        runs-on: ubuntu-latest
+        needs: format-and-lint
+        if: ${{ always() && (needs.format-and-lint.result == 'success' && github.event.pull_request.base.ref == 'main')}}
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Setup PNPM
+              uses: pnpm/action-setup@v4
+              with:
+                  version: latest
+
+            - name: Setup NodeJS
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.node-version'
+                  cache: 'pnpm'
+                  cache-dependency-path: 'pnpm-lock.yaml'
+
+            - name: Install Dependencies
+              run: pnpm install
+
+            - name: Install Vercel CLI
+              run: pnpm i vercel@latest -g
+
+            - name: Pull Vercel ENV Information
+              run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+            - name: Build Project Artifacts
+              run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+            - name: Deploy Project Artifacts to Vercel
+              run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+    vercel-deploy-preview:
+        runs-on: ubuntu-latest
+        needs: format-and-lint
+        if: ${{ always() && (needs.format-and-lint.result == 'success' && github.event.pull_request.base.ref == 'Preview')}}
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Setup PNPM
+              uses: pnpm/action-setup@v4
+              with:
+                  version: latest
+
+            - name: Setup NodeJS
+              uses: actions/setup-node@v4
+              with:
+                  node-version-file: '.node-version'
+                  cache: 'pnpm'
+                  cache-dependency-path: 'pnpm-lock.yaml'
+
+            - name: Install Dependencies
+              run: pnpm install
+
+            - name: Install Vercel CLI
+              run: pnpm i vercel@latest -g
+
+            - name: Pull Vercel ENV Information
+              run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+
+            - name: Build Project Artifacts
+              run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+
+            - name: Deploy Project Artifacts to Vercel
+              run: vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
+
+            - name: Get Deployment URL
+              id: get-url
+              run: |
+                  DEPLOYMENT_URL=$(vercel ls --token=${{ secrets.VERCEL_TOKEN }} | grep 'https://' | head -n 1)
+                  echo "DEPLOYMENT_URL=$DEPLOYMENT_URL" >> $GITHUB_ENV
+
+            - name: Comment Deployment URL on PR
+              if: github.event_name == 'pull_request'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  gh pr comment ${{ github.event.pull_request.number }} --body "Deployment URL: ${{ env.DEPLOYMENT_URL }}"
