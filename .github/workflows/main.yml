@@ -270,3 +270,12 @@ jobs:
                 vercel-token: ${{ secrets.VERCEL_TOKEN }}
                 vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
                 vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+
+            - name: Comment Deployment URL on PR
+              if: github.event_name == 'pull_request'
+              env:
+                GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                DEPLOYMENT_URL: ${{ steps.vercel-preview.outputs.url }}
+              run: |
+                echo "Commenting on PR with Deployment URL: $DEPLOYMENT_URL"
+                gh pr comment ${{ github.event.pull_request.number }} --body "Deployment URL: $DEPLOYMENT_URL"
