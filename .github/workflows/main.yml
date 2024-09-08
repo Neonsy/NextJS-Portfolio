@@ -247,6 +247,13 @@ jobs:
             - name: Deploy Project Artifacts to Vercel
               run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
 
+            - name: Comment Deployment URL on PR
+              if: github.event_name == 'pull_request'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  gh pr comment ${{ github.event.pull_request.number }} --body "Deployment URL: ${{ env.DEPLOYMENT_URL }}"
+
     vercel-deploy-preview:
         runs-on: ubuntu-latest
         needs: format-and-lint
@@ -275,13 +282,13 @@ jobs:
               run: pnpm i vercel@latest -g
 
             - name: Pull Vercel ENV Information
-              run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
-
+              run: vercel pull --yes --environment=preview --project=${{ secrets.VERCEL_PROJECT_ID }} --scope=${{ secrets.VERCEL_ORG_ID }} --token=${{ secrets.VERCEL_TOKEN }}
+                    
             - name: Build Project Artifacts
-              run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
-
+              run: vercel build --project=${{ secrets.VERCEL_PROJECT_ID }} --scope=${{ secrets.VERCEL_ORG_ID }} --token=${{ secrets.VERCEL_TOKEN }}
+                    
             - name: Deploy Project Artifacts to Vercel
-              run: vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
+              run: vercel deploy --prebuilt --project=${{ secrets.VERCEL_PROJECT_ID }} --scope=${{ secrets.VERCEL_ORG_ID }} --token=${{ secrets.VERCEL_TOKEN }}
 
             - name: Get Deployment URL
               id: get-url
