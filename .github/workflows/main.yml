@@ -263,42 +263,10 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
 
-            - name: Setup PNPM
-              uses: pnpm/action-setup@v4
+            - name: Deploy to Preview
+              id: vercel-preview
+              uses: amondnet/vercel-action@v25
               with:
-                  version: latest
-
-            - name: Setup NodeJS
-              uses: actions/setup-node@v4
-              with:
-                  node-version-file: '.node-version'
-                  cache: 'pnpm'
-                  cache-dependency-path: 'pnpm-lock.yaml'
-
-            - name: Install Dependencies
-              run: pnpm install
-
-            - name: Install Vercel CLI
-              run: pnpm i vercel@latest -g
-
-            - name: Pull Vercel ENV Information
-              run: vercel pull --yes --environment=preview --project=${{ secrets.VERCEL_PROJECT_ID }} --scope=${{ secrets.VERCEL_ORG_ID }} --token=${{ secrets.VERCEL_TOKEN }}
-                    
-            - name: Build Project Artifacts
-              run: vercel build --project=${{ secrets.VERCEL_PROJECT_ID }} --scope=${{ secrets.VERCEL_ORG_ID }} --token=${{ secrets.VERCEL_TOKEN }}
-                    
-            - name: Deploy Project Artifacts to Vercel
-              run: vercel deploy --prebuilt --project=${{ secrets.VERCEL_PROJECT_ID }} --scope=${{ secrets.VERCEL_ORG_ID }} --token=${{ secrets.VERCEL_TOKEN }}
-
-            - name: Get Deployment URL
-              id: get-url
-              run: |
-                  DEPLOYMENT_URL=$(vercel ls --token=${{ secrets.VERCEL_TOKEN }} | grep 'https://' | head -n 1)
-                  echo "DEPLOYMENT_URL=$DEPLOYMENT_URL" >> $GITHUB_ENV
-
-            - name: Comment Deployment URL on PR
-              if: github.event_name == 'pull_request'
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              run: |
-                  gh pr comment ${{ github.event.pull_request.number }} --body "Deployment URL: ${{ env.DEPLOYMENT_URL }}"
+                vercel-token: ${{ secrets.VERCEL_TOKEN }}
+                vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+                vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
