@@ -11,7 +11,7 @@ export type Post = {
 
 export type PostMetadata = {
     title?: string;
-    labels?: string;
+    labels?: string[];
     image?: string;
     alt?: string;
     slug: string;
