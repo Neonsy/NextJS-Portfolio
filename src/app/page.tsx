@@ -1,8 +1,22 @@
 import Image from 'next/image';
+import { MDXRemote } from 'next-mdx-remote/rsc';
 
 export default function Home() {
+    const markdown = `
+        # This is markdown
+
+        \`\`\`js
+        console.log('Hello, world without syntax highlighting!');
+        \`\`\`
+
+        This is a paragraph of text
+        `;
+
     return (
         <div className="grid min-h-screen grid-rows-[20px_1fr_20px] items-center justify-items-center gap-16 p-8 pb-20 font-[family-name:var(--font-geist-sans)] sm:p-20">
+            <div className="prose dark:prose-invert">
+                <MDXRemote source={markdown} />
+            </div>
             <main className="row-start-2 flex flex-col items-center gap-8 sm:items-start">
                 <Image
                     className="dark:invert"
