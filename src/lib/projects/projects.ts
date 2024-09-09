@@ -1,34 +1,28 @@
-import path from 'path';
 import fs from 'fs';
-import matter from 'gray-matter';
 
-import { targetDirectory } from './project';
+import { getProject, targetDirectory } from './project';
 
-import type { PostMetadata } from './project';
+import type { ProjectMetadata, FileName } from './types';
 
-export async function getAllProjects(): Promise<PostMetadata[]> {
+export async function getAllProjects(): Promise<ProjectMetadata[]> {
     const files = fs.readdirSync(targetDirectory);
 
-    const posts = files.map((file) => getPostMetadata(file)).sort((a, b) => b.id - a.id);
+    const Projects = await Promise.all(
+        files.map(async (file) => {
+            const target: FileName = {
+                type: 'file',
+                fileName: file,
+            };
 
-    return posts;
-}
+            const Project = await getProject(target);
 
-function getPostMetadata(file: string): PostMetadata {
-    const slug = file.replace('.mdx', '');
-    const filePath = path.join(targetDirectory, file);
-    const fileContent = fs.readFileSync(filePath, { encoding: 'utf-8' });
-    const { data } = matter(fileContent);
+            if (Project) {
+                return Project.metadata;
+            } else {
+                throw new Error('Project not found');
+            }
+        })
+    ).then((projects) => projects.filter(Boolean).sort((a, b) => b.id - a.id));
 
-    const metadata: PostMetadata = {
-        id: data.id,
-        title: data.title,
-        labels: data.labels,
-        description: data.description,
-        image: data.image,
-        alt: data.alt,
-        slug,
-    };
-
-    return metadata;
+    return Projects;
 }

@@ -2,28 +2,16 @@ import path from 'path';
 import fs from 'fs';
 import matter from 'gray-matter';
 
+import type { Project, ProjectMetadata, Target } from './types';
+
 export const targetDirectory = path.join(process.cwd(), 'content', 'projects');
 
-export type Post = {
-    metadata: PostMetadata;
-    content: string;
-};
-
-export type PostMetadata = {
-    id: number;
-    title: string;
-    labels: string[];
-    description: string;
-    image?: string;
-    alt?: string;
-    slug: string;
-};
-
-export async function getProjectBySlug(slug: string): Promise<Post | null> {
+export async function getProject(target: Target): Promise<Project | null> {
     try {
+        const slug = target.type === 'file' ? target.fileName.replace('.mdx', '') : target.slug;
+
         const filePath = path.join(targetDirectory, `${slug}.mdx`);
         const fileContent = fs.readFileSync(filePath, { encoding: 'utf-8' });
-
         const { content, data } = matter(fileContent);
 
         if (!data.id || !data.title || !data.labels || !data.description) {
@@ -35,7 +23,7 @@ export async function getProjectBySlug(slug: string): Promise<Post | null> {
             throw error;
         }
 
-        const metadata: PostMetadata = {
+        const metadata: ProjectMetadata = {
             id: data.id,
             title: data.title,
             labels: data.labels,
